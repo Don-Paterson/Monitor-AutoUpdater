@@ -1,0 +1,5 @@
+credentials.json
+data/
+logs/
+__pycache__/
+*.pyc
