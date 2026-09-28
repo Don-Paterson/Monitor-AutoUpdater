@@ -42,9 +42,7 @@ class GaiaShell:
         self.expert_password = expert_password or password
         self.port = port
         self.connect_timeout = connect_timeout
-        # Entering expert mode can take 20-25 s on lab gateways (seen on the CCTE lab,
-        # 28 Sep 2026): after the password nothing at all comes back until the banner
-        # and [Expert@host:0]# prompt appear. A 20 s wait timed out every host.
+        # Upper bound for each login step (prompt, expert, expert password).
         self.login_timeout = login_timeout
         self.client = None
         self.chan = None
@@ -76,6 +74,26 @@ class GaiaShell:
         tail = clean(buf)[-300:]
         raise GaiaShellError(f"Timed out after {timeout}s waiting for prompt"
                              f"{' (' + self.stage + ')' if getattr(self, 'stage', '') else ''}. Last output: {tail!r}")
+
+    def _wait_expert_prompt(self):
+        """After the expert password, Gaia can sit silent until it gets another Enter
+        (seen on every host of the CCTE lab, 28 Sep 2026: nothing for 30 s and more, then
+        the banner and [Expert@host:0]# appear within a second of an extra Enter).
+        So nudge with an Enter every few seconds until a prompt shows up."""
+        pats = [BASH_PROMPT_RE, CLISH_PROMPT_RE, PASSWORD_PROMPT_RE]
+        buf, deadline, nudge = "", time.time() + self.login_timeout, 3
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                return self._read_until(pats, timeout=0.1, buf=buf)   # raises with context
+            try:
+                return self._read_until(pats, timeout=min(nudge, left), buf=buf)
+            except GaiaShellError as e:
+                if "closed" in str(e):
+                    raise
+            buf += self._recv_available()
+            self._send("")          # the extra Enter
+            nudge = 5
 
     def _send(self, line: str):
         self.chan.send(line + "\n")
@@ -114,8 +132,7 @@ class GaiaShell:
             if idx == 0:
                 self._send(self.expert_password)
                 self.stage = "after expert password"
-                buf, idx = self._read_until(
-                    [BASH_PROMPT_RE, CLISH_PROMPT_RE, PASSWORD_PROMPT_RE], timeout=self.login_timeout)
+                buf, idx = self._wait_expert_prompt()
                 if idx != 0:
                     raise GaiaShellError(f"Expert password rejected on {self.host}")
         else:

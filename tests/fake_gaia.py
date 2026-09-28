@@ -19,6 +19,7 @@ import paramiko
 HOST_KEY = paramiko.RSAKey.generate(2048)
 USER, PASSWORD, EXPERT_PW = "admin", "Chkp!234", "Chkp!234"
 EXPERT_DELAY = 0.0
+EXPERT_NEEDS_ENTER = False
 
 FAKE_BIN = {
     "autoupdatercli": 'cat "$STATE/au_take.txt"',
@@ -107,7 +108,9 @@ def session(chan, name, env, login_shell):
                     pw = readline(chan, False)
                     if pw == EXPERT_PW:
                         if EXPERT_DELAY:
-                            import time as _t; _t.sleep(EXPERT_DELAY)   # real gateways: 20-25 s of silence
+                            import time as _t; _t.sleep(EXPERT_DELAY)
+                        if EXPERT_NEEDS_ENTER:
+                            readline(chan, False)   # CCTE lab gateways: silent until another Enter
                         chan.send(b"Warning! All configurations should be done through clish\r\n"
                                   b"You are in expert mode now.\r\n\r\n")
                         mode = "bash"
@@ -164,7 +167,10 @@ if __name__ == "__main__":
     ap.add_argument("--name", required=True)
     ap.add_argument("--shell", default="clish", choices=["clish", "bash"])
     ap.add_argument("--expert-delay", type=float, default=0.0,
-                    help="seconds of silence after the expert password (CCTE gateways: ~22)")
+                    help="seconds of silence after the expert password")
+    ap.add_argument("--expert-needs-enter", action="store_true",
+                    help="stay silent after the expert password until another Enter (CCTE lab gateways)")
     a = ap.parse_args()
     EXPERT_DELAY = a.expert_delay
+    EXPERT_NEEDS_ENTER = a.expert_needs_enter
     serve(a.port, a.state, a.name, a.shell)
