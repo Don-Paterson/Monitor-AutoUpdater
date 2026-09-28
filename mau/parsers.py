@@ -24,6 +24,31 @@ def parse_system(raw: str) -> dict:
 
 
 def parse_au_take(raw: str) -> dict:
+    """AutoUpdater take from 'autoupdatercli show auto_updater'.
+
+    R81.20/R82 print one block per package (package-version, package-name,
+    package-installed: true|false, ...); the take is the package-version of the
+    block marked installed (CCTE lab, 28 Sep 2026: A-SMS T84, gateways T90).
+    'build' holds the installed package file name so a re-spin of the same take
+    still shows as a change. Older formats ('Take: 90 / Build: 441') still work."""
+    blocks, cur = [], {}
+    for line in raw.splitlines():
+        m = re.match(r"\s*(package-[\w-]+|installation-date)\s*:\s*(.*?)\s*$", line)
+        if m:
+            if m.group(1) in cur:            # a repeated key starts the next package block
+                blocks.append(cur)
+                cur = {}
+            cur[m.group(1)] = m.group(2)
+        elif not line.strip() and cur:
+            blocks.append(cur)
+            cur = {}
+    if cur:
+        blocks.append(cur)
+    installed = [b for b in blocks if b.get("package-installed", "").lower() == "true"]
+    if installed:
+        b = installed[-1]
+        return {"take": b.get("package-version"), "build": b.get("package-name"),
+                "installed_at": b.get("installation-date")}
     take = re.search(r"(?i)\btake\b\D{0,5}(\d+)", raw)
     build = re.search(r"(?i)\bbuild\b\D{0,5}(\d+)", raw)
     return {
