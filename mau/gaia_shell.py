@@ -35,13 +35,17 @@ def clean(text: str) -> str:
 
 class GaiaShell:
     def __init__(self, host, user, password, expert_password=None, port=22,
-                 connect_timeout=20):
+                 connect_timeout=20, login_timeout=90):
         self.host = host
         self.user = user
         self.password = password
         self.expert_password = expert_password or password
         self.port = port
         self.connect_timeout = connect_timeout
+        # Entering expert mode can take 20-25 s on lab gateways (seen on the CCTE lab,
+        # 28 Sep 2026): after the password nothing at all comes back until the banner
+        # and [Expert@host:0]# prompt appear. A 20 s wait timed out every host.
+        self.login_timeout = login_timeout
         self.client = None
         self.chan = None
         self.login_shell = None  # "clish" or "bash"
@@ -70,7 +74,8 @@ class GaiaShell:
             else:
                 time.sleep(0.1)
         tail = clean(buf)[-300:]
-        raise GaiaShellError(f"Timed out waiting for prompt. Last output: {tail!r}")
+        raise GaiaShellError(f"Timed out after {timeout}s waiting for prompt"
+                             f"{' (' + self.stage + ')' if getattr(self, 'stage', '') else ''}. Last output: {tail!r}")
 
     def _send(self, line: str):
         self.chan.send(line + "\n")
@@ -93,26 +98,30 @@ class GaiaShell:
 
         # Wide terminal so long lines (cpinfo, CPUSE tables) are not wrapped
         self.chan = self.client.invoke_shell(term="vt100", width=400, height=100)
-        buf, idx = self._read_until([CLISH_PROMPT_RE, BASH_PROMPT_RE], timeout=30)
+        self.stage = "login prompt"
+        buf, idx = self._read_until([CLISH_PROMPT_RE, BASH_PROMPT_RE], timeout=self.login_timeout)
 
         if idx == 0:
             self.login_shell = "clish"
             self._send("expert")
+            self.stage = "after 'expert'"
             buf, idx = self._read_until(
-                [PASSWORD_PROMPT_RE, BASH_PROMPT_RE, CLISH_PROMPT_RE], timeout=20)
+                [PASSWORD_PROMPT_RE, BASH_PROMPT_RE, CLISH_PROMPT_RE], timeout=self.login_timeout)
             if idx == 2:
                 msg = clean(buf).strip().split("\n")[-2:]
                 raise GaiaShellError(
                     f"'expert' refused on {self.host} (is an expert password set?): {' '.join(msg)}")
             if idx == 0:
                 self._send(self.expert_password)
+                self.stage = "after expert password"
                 buf, idx = self._read_until(
-                    [BASH_PROMPT_RE, CLISH_PROMPT_RE, PASSWORD_PROMPT_RE], timeout=20)
+                    [BASH_PROMPT_RE, CLISH_PROMPT_RE, PASSWORD_PROMPT_RE], timeout=self.login_timeout)
                 if idx != 0:
                     raise GaiaShellError(f"Expert password rejected on {self.host}")
         else:
             self.login_shell = "bash"
 
+        self.stage = ""
         # Quieter, predictable shell. Don't leave our commands in bash history.
         self.run("unset HISTFILE; export TERM=dumb; stty -echo 2>/dev/null; true", timeout=15)
         return self

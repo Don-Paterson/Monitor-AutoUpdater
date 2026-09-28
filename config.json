@@ -8,6 +8,7 @@
     "collection": {
         "interval_minutes": 15,
         "command_timeout_seconds": 240,
+        "login_timeout_seconds": 90,
         "parallel": true,
         "log_tail_lines": 60,
         "skip_sections": []

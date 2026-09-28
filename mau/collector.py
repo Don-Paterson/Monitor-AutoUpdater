@@ -130,7 +130,8 @@ def collect_host(host_cfg: dict, creds: dict, settings: dict) -> dict:
     }
     t0 = time.time()
     shell = GaiaShell(host_cfg["ip"], ssh.get("user", "admin"), ssh.get("password", ""),
-                      ssh.get("expert_password"), port=host_cfg.get("ssh_port", 22))
+                      ssh.get("expert_password"), port=host_cfg.get("ssh_port", 22),
+                      login_timeout=int(col.get("login_timeout_seconds", 90)))
     try:
         shell.open()
         snap["login_shell"] = shell.login_shell
