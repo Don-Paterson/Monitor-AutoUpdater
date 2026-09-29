@@ -21,6 +21,9 @@ body { font-family: 'Cascadia Code','SF Mono','Fira Code',Consolas,monospace; ba
           margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .header h1 { font-size: 18px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
 .header h1 span { color: var(--blue); }
+.lab-name { font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #93c5fd; background: var(--blue-bg);
+            border: 1px solid var(--blue-b); border-radius: 4px; padding: 3px 8px; margin-left: 10px; vertical-align: middle; }
+.lab-name:empty { display: none; }
 .meta { display: flex; gap: 18px; align-items: center; font-size: 11px; color: var(--dim); flex-wrap: wrap; }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--green); }
 .dot.busy { background: var(--amber); animation: pulse 1s ease-in-out infinite; }
@@ -93,7 +96,7 @@ h3 { font-size: 11px; color: var(--label); text-transform: uppercase; letter-spa
 <body>
 
 <div class="header">
-  <h1>Monitor-<span>AutoUpdater</span></h1>
+  <h1>Monitor-<span>AutoUpdater</span> <small id="lab-name" class="lab-name"></small></h1>
   <div class="meta">
     <span id="poll-state"><span class="dot"></span>idle</span>
     <span id="last-cycle">Last cycle: —</span>
@@ -159,6 +162,8 @@ async function refresh() {
     const r = await fetch('/api/state', {cache: 'no-store'});
     STATE = await r.json();
     STATE.offset = STATE.server_time - Date.now() / 1000;
+    if (STATE.lab) { document.querySelector('#lab-name').textContent = STATE.lab.name;
+                     document.title = document.title.replace(/Monitor-AutoUpdater.*/, 'Monitor-AutoUpdater - ' + STATE.lab.name); }
     document.querySelector('#poll-state').innerHTML = STATE.collecting
       ? '<span class="dot busy"></span>collecting…' : '<span class="dot"></span>idle';
     document.querySelector('#btn-collect').disabled = STATE.collecting;

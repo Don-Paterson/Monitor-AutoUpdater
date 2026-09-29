@@ -16,10 +16,50 @@ The bootstrap:
 
 1. Installs Python 3.12 silently if no real Python 3.9+ is present (it ignores the Store alias).
 2. Installs `flask` and `paramiko`.
-3. Downloads the tool to `C:\Monitor-AutoUpdater`. Any existing `data\`, `logs\`, `config.json` and `credentials.json` are kept.
+3. Downloads the tool to `C:\Monitor-AutoUpdater`. Any existing `data\`, `logs\`, `config.json`, `credentials.json`, `labs.local.json` and `selection.json` are kept.
 4. Writes `credentials.json` (default `admin` / `Chkp!234`, with the same password for expert).
-5. Checks TCP 22 to each host.
-6. Creates a **Monitor-AutoUpdater** desktop shortcut and starts the dashboard at **http://localhost:8090**, which opens automatically.
+5. Creates a **Monitor-AutoUpdater** desktop shortcut and starts the tool. It shows the lab/machine menu (below), then opens the dashboard at **http://localhost:8090**.
+
+### Choosing the lab and machines
+
+Every start (bootstrap or desktop shortcut) opens with a menu. Before showing it, the tool probes every known lab IP on tcp/22. It then lists each lab with how many of its machines answer, and marks the best match as **detected**:
+
+```
+   1) CCTE                   6/6 reachable  <- detected
+        A-GW-Cluster (A-GW-01/02), A-SMS, A-SMS-02, A-SME, B-GW
+   2) CCSE - ElasticXL       3/5 reachable
+   3) CTPS                   2/2 reachable
+   C) Custom lab - enter machines by IP
+   Enter = last used: CCTE (A-SMS, A-GW-01, A-GW-02)
+```
+
+Once you pick a lab, you get the machine list with a reachable / no answer status for each. Toggle machines by number (`2 4`), or use `A` (all), `R` (reachable only), `N` (none), `D` (the lab's defaults), `+ NAME IP [role]` (add a machine), `P` (re-probe) or `B` (back). Press Enter to start. The choice is saved to `selection.json`, so next time Enter at both menus starts the same set.
+
+Shipped labs (`labs.json`, taken from the course topology diagrams):
+
+| Lab | Machines (default ticked in **bold**) |
+|---|---|
+| CCTE | **A-SMS** 10.1.1.101, A-SMS-02 .111, A-SME .130, **A-GW-01** 10.1.1.2, **A-GW-02** 10.1.1.3, B-GW 198.51.100.1 / 192.168.21.1 |
+| CCSE - ElasticXL | **A-SMS**, A-SMS-02, A-SME, **A-ElasticXL** (SMO on 10.1.1.1), B-GW |
+| CTPS | **A-SMS** 10.1.1.101, **A-GW** 10.1.1.1 |
+
+Each machine can list several IPs; the first one that answers is used. B-GW is tried on its external address first, then its internal one.
+
+**Your own labs:** choose `C` in the menu and enter `NAME IP [role]` lines. You'll be offered the option to save the lab to `labs.local.json`. You can also edit that file directly; it uses the same format as `labs.json` and a lab with the same `id` overrides the shipped one. The bootstrap updates `labs.json` on every run but never touches `labs.local.json`. An address can include a port (`10.1.1.2:2222`).
+
+**Skipping the menu:**
+
+```powershell
+python server.py --last                                   # same lab + machines as last time
+python server.py --lab ccte --hosts A-SMS,A-GW-01,A-GW-02  # explicit
+python server.py --list-labs                              # ids and IPs
+```
+
+If there's no console, for example when it's started by Task Scheduler, it uses the last selection automatically.
+
+Data is kept per lab (`data\<lab>\`, `logs\<lab>\`), so baselines from different labs never mix, even though every lab has an A-SMS. The lab name is shown in the dashboard header.
+
+### Clish
 
 Nothing is configured on the Check Point hosts. The admin user's Clish shell is left alone, because each SSH session enters `expert` itself.
 
@@ -62,18 +102,21 @@ A section that fails to collect (timeout, missing command) is marked on the card
 ```
 C:\Monitor-AutoUpdater\
 ├── server.py              Flask app + poller  (python server.py --once for a single CLI run)
-├── config.json            hosts, poll interval, ignore rules
+├── config.json            poll interval, dashboard port, ignore rules
+├── labs.json              shipped lab profiles (replaced by bootstrap)
+├── labs.local.json        your labs / overrides (never replaced, gitignored)
+├── selection.json         last lab + machines chosen in the menu
 ├── credentials.json       SSH creds (created by bootstrap, gitignored)
-├── mau\                   gaia_shell (Paramiko), collector, parsers, differ, store, engine
+├── mau\                   gaia_shell (Paramiko), collector, parsers, differ, store, engine, labs, menu
 ├── static\dashboard.html
-├── data\<host>\baseline.json | last_good.json | latest.json | history\*.json
-├── data\changes.jsonl     all change events (machine readable)
-└── logs\changes.log       all change events (human readable)   logs\runs.log  one line per host per poll
+├── data\<lab>\<host>\baseline.json | last_good.json | latest.json | history\*.json
+├── data\<lab>\changes.jsonl     all change events (machine readable)
+└── logs\<lab>\changes.log       all change events (human readable)   runs.log  one line per host per poll
 ```
 
 ## Config
 
-Hosts default to the standard lab topology (A-SMS 10.1.1.101, A-GW-01 10.1.1.2, A-GW-02 10.1.1.3). Edit `config.json` for other labs. Add `"ssh_port"` or a per-host `"ssh": {...}` credential override if needed.
+Machines come from the lab profiles (see *Choosing the lab and machines*). In a profile, a host can carry a per-host `"ssh": {"user": ..., "password": ..., "expert_password": ...}` override.
 
 `ignore.component_attributes` is a regex of `products_config.xml` attribute names to skip, such as last-check timestamps. `ignore.line_patterns` drops noisy lines from the CPUSE and licence output. If a real lab shows a change on every poll, the fix is usually to add a pattern here. `collection.skip_sections` turns sections off; for example, add `"bundles"` if `cpinfo -y all` is too slow on a busy SMS.
 

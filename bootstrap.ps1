@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
     Monitor-AutoUpdater bootstrap
-    Installs Python (if needed) + Flask + Paramiko on A-GUI, downloads the tool
-    and starts the dashboard that tracks AutoUpdater / CPUSE / bundle / consent /
+    Installs Python (if needed) + Flask + Paramiko on A-GUI, downloads the tool,
+    shows a menu to pick the lab (CCTE / CCSE-ElasticXL / CTPS / custom) and the
+    machines to watch, then starts the dashboard that tracks AutoUpdater / CPUSE / bundle / consent /
     licence changes on the lab Gaia hosts.
 
 .USAGE
@@ -43,6 +44,9 @@ $FILES = @(
     "mau/differ.py",
     "mau/store.py",
     "mau/engine.py",
+    "mau/labs.py",
+    "mau/menu.py",
+    "labs.json",
     "static/dashboard.html",
     "credentials.json.example"
 )
@@ -81,7 +85,7 @@ function Find-Python {
 }
 
 # ---- Step 1: Python ----
-Write-Step 1 6 "Checking Python..."
+Write-Step 1 5 "Checking Python..."
 $PY = Find-Python
 if ($PY) {
     Write-Ok "Found $(& $PY --version 2>&1) at $PY"
@@ -101,14 +105,14 @@ if ($PY) {
 }
 
 # ---- Step 2: Python packages ----
-Write-Step 2 6 "Installing Python packages (flask, paramiko)..."
+Write-Step 2 5 "Installing Python packages (flask, paramiko)..."
 & $PY -m pip install --quiet --disable-pip-version-check --upgrade pip 2>$null
 & $PY -m pip install --quiet --disable-pip-version-check flask paramiko 2>$null
 $check = & $PY -c "import flask, paramiko; print('ok')" 2>&1
 if ("$check" -match "ok") { Write-Ok "flask + paramiko ready" } else { Write-Err "Package install problem: $check"; return }
 
 # ---- Step 3: Download files (keeps data/, logs/, config, credentials) ----
-Write-Step 3 6 "Downloading Monitor-AutoUpdater to $INSTALL_DIR..."
+Write-Step 3 5 "Downloading Monitor-AutoUpdater to $INSTALL_DIR..."
 foreach ($d in @($INSTALL_DIR, "$INSTALL_DIR\mau", "$INSTALL_DIR\static")) {
     New-Item -ItemType Directory -Path $d -Force | Out-Null
 }
@@ -132,7 +136,7 @@ if ($failed) { Write-Err "$failed file(s) failed to download"; return }
 Write-Ok "Files in place"
 
 # ---- Step 4: Credentials ----
-Write-Step 4 6 "Credentials..."
+Write-Step 4 5 "Credentials..."
 $credPath = Join-Path $INSTALL_DIR "credentials.json"
 if ($RESET -or -not (Test-Path $credPath)) {
     $cred = @{ ssh = @{ user = $SSH_USER; password = $SSH_PASS; expert_password = $EXPERT_PASS } }
@@ -142,21 +146,9 @@ if ($RESET -or -not (Test-Path $credPath)) {
     Write-Ok "Keeping existing credentials.json"
 }
 
-# ---- Step 5: Reachability check (SSH port) ----
-Write-Step 5 6 "Checking SSH reachability of lab hosts..."
+# ---- Step 5: Launcher + start ----
+Write-Step 5 5 "Creating launcher and starting dashboard..."
 $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-foreach ($h in $cfg.hosts) {
-    $port = if ($h.ssh_port) { [int]$h.ssh_port } else { 22 }
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $ok = $tcp.ConnectAsync($h.ip, $port).Wait(3000) -and $tcp.Connected
-    } catch { $ok = $false } finally { $tcp.Close() }
-    if ($ok) { Write-Ok ("{0,-10} {1}:{2} reachable" -f $h.name, $h.ip, $port) }
-    else     { Write-Warn ("{0,-10} {1}:{2} NOT reachable (will keep retrying each poll)" -f $h.name, $h.ip, $port) }
-}
-
-# ---- Step 6: Launcher + start ----
-Write-Step 6 6 "Creating launcher and starting dashboard..."
 $launcher = Join-Path $INSTALL_DIR "Start-Monitor.cmd"
 @"
 @echo off
@@ -182,10 +174,13 @@ Write-Host "  Monitor-AutoUpdater ready" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "  Dashboard : http://localhost:$port" -ForegroundColor White
 Write-Host "  Folder    : $INSTALL_DIR" -ForegroundColor White
-Write-Host "  Change log: $INSTALL_DIR\logs\changes.log" -ForegroundColor White
+Write-Host "  Change log: $INSTALL_DIR\logs\<lab>\changes.log" -ForegroundColor White
 Write-Host "  One-off   : `"$PY`" $INSTALL_DIR\server.py --once" -ForegroundColor White
 Write-Host ""
-Write-Host "Starting (Ctrl+C to stop; relaunch from the desktop shortcut)..." -ForegroundColor Yellow
+Write-Host "  Labs      : CCTE, CCSE-ElasticXL, CTPS + your own in labs.local.json" -ForegroundColor White
+Write-Host "  Skip menu : `"$PY`" $INSTALL_DIR\server.py --last" -ForegroundColor White
+Write-Host ""
+Write-Host "Starting - choose the lab and machines in the menu (Ctrl+C to stop; relaunch from the desktop shortcut)..." -ForegroundColor Yellow
 Write-Host ""
 
 Set-Location $INSTALL_DIR

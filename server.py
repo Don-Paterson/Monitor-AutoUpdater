@@ -2,8 +2,10 @@
 Monitor-AutoUpdater - watches Check Point AutoUpdater, CPUSE/DA, bundle,
 licence and contract changes on lab Gaia hosts and shows them on a local page.
 
-  python server.py          start the poller + dashboard (default)
-  python server.py --once   run a single collection, print changes, exit
+  python server.py                     menu (lab + machines), then poller + dashboard
+  python server.py --last              skip the menu, reuse the last lab/machines
+  python server.py --lab ccte --hosts A-SMS,A-GW-01
+  python server.py --once [...]        one collection, print changes, exit
 """
 import io
 import os
@@ -20,6 +22,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
 from mau.engine import Monitor          # noqa: E402
+from mau import menu                    # noqa: E402
 from mau.differ import diff_snapshots   # noqa: E402
 from mau.collector import SECTION_TITLES  # noqa: E402
 
@@ -42,7 +45,7 @@ def load_json(name, required=True):
 
 CONFIG = load_json("config.json")
 CREDS = load_json("credentials.json")
-monitor = Monitor(CONFIG, CREDS, BASE_DIR)
+monitor = None  # created in main() after the lab / machine menu
 
 
 def create_app():
@@ -94,6 +97,7 @@ def create_app():
             "last_cycle": monitor.last_cycle,
             "next_run": monitor.next_run,
             "server_time": time.time(),
+            "lab": {"id": monitor.lab["id"], "name": monitor.lab["name"]},
             "interval_minutes": monitor.interval // 60,
             "ui_refresh_seconds": CONFIG.get("dashboard", {}).get("ui_refresh_seconds", 5),
             "hosts": hosts,
@@ -155,14 +159,30 @@ def run_once():
                   f"[{e.get('old') or '-'} -> {e.get('new') or '-'}]")
         if snap.get("ok") and not events:
             print("   no changes")
-    print(f"\nLogs: {os.path.join(BASE_DIR, 'logs')}")
+    print(f"\nLogs: {monitor.store.log_dir}")
 
 
 def main():
     ap = argparse.ArgumentParser(description="Monitor-AutoUpdater")
     ap.add_argument("--once", action="store_true", help="collect once, print changes and exit")
     ap.add_argument("--no-browser", action="store_true", help="don't open the dashboard in a browser")
+    ap.add_argument("--lab", help="lab id from labs.json (skips the menu), e.g. ccte, ctps, ccse-elasticxl")
+    ap.add_argument("--hosts", help="comma-separated machine names to monitor (with --lab)")
+    ap.add_argument("--last", action="store_true", help="skip the menu and reuse the last selection")
+    ap.add_argument("--list-labs", action="store_true", help="list the known labs and exit")
     args = ap.parse_args()
+
+    if args.list_labs:
+        from mau.labs import load_labs
+        for lab in load_labs(BASE_DIR):
+            print(f"{lab['id']:<18} {lab['name']:<20} " + ", ".join(
+                f"{h['name']}={'/'.join(h['ips'])}" for h in lab["hosts"]))
+        return
+
+    global monitor
+    lab, hosts = menu.select(BASE_DIR, lab_arg=args.lab, hosts_arg=args.hosts,
+                             use_last=args.last, interactive=sys.stdin.isatty())
+    monitor = Monitor(CONFIG, CREDS, BASE_DIR, hosts, lab)
 
     if args.once:
         run_once()
@@ -173,7 +193,7 @@ def main():
     url = f"http://{'localhost' if host in ('0.0.0.0', '127.0.0.1') else host}:{port}"
 
     logger.info("=" * 60)
-    logger.info("Monitor-AutoUpdater starting")
+    logger.info(f"Monitor-AutoUpdater starting - lab: {lab['name']}")
     for h in monitor.hosts:
         logger.info(f"  {h['name']:<10} {h['ip']}  ({h.get('role', '')})")
     logger.info(f"  Poll interval: {monitor.interval // 60} min")

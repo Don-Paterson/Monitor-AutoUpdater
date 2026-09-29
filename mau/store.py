@@ -1,13 +1,13 @@
 """
 On-disk store for snapshots and the change log.
 
-data/
+data/<lab>/
   <host>/baseline.json     first good snapshot (or last "re-baseline")
   <host>/latest.json       most recent snapshot (good or failed)
   <host>/last_good.json    most recent successful snapshot (diff reference)
   <host>/history/*.json    a copy of every snapshot that contained changes
   changes.jsonl            every change event, all hosts (machine readable)
-logs/
+logs/<lab>/
   changes.log              the same events, human readable
   runs.log                 one line per host per poll
 """
@@ -24,9 +24,10 @@ def _safe(name):
 
 
 class Store:
-    def __init__(self, base_dir):
-        self.data_dir = os.path.join(base_dir, "data")
-        self.log_dir = os.path.join(base_dir, "logs")
+    def __init__(self, base_dir, lab_id="default"):
+        # One folder per lab, so A-SMS in CCTE and A-SMS in CTPS never share a baseline
+        self.data_dir = os.path.join(base_dir, "data", _safe(lab_id))
+        self.log_dir = os.path.join(base_dir, "logs", _safe(lab_id))
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
         self.changes_path = os.path.join(self.data_dir, "changes.jsonl")

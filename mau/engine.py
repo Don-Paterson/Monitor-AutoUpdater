@@ -14,11 +14,12 @@ logger = logging.getLogger("mau.engine")
 
 
 class Monitor:
-    def __init__(self, config, creds, base_dir):
+    def __init__(self, config, creds, base_dir, hosts, lab=None):
         self.config = config
         self.creds = creds
-        self.store = Store(base_dir)
-        self.hosts = config["hosts"]
+        self.lab = lab or {"id": "default", "name": "Lab"}
+        self.store = Store(base_dir, self.lab["id"])
+        self.hosts = hosts
         self.interval = max(1, int(config.get("collection", {}).get("interval_minutes", 15))) * 60
         self.lock = threading.Lock()
         self.generation = 0

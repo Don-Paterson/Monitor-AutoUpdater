@@ -13,11 +13,6 @@
         "log_tail_lines": 60,
         "skip_sections": []
     },
-    "hosts": [
-        { "name": "A-SMS",   "ip": "10.1.1.101", "role": "Management" },
-        { "name": "A-GW-01", "ip": "10.1.1.2",   "role": "Gateway" },
-        { "name": "A-GW-02", "ip": "10.1.1.3",   "role": "Gateway" }
-    ],
     "ignore": {
         "component_attributes": "(?i)(time|date|last|next|check)",
         "line_patterns": [
